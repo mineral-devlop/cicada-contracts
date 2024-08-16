@@ -17,12 +17,17 @@ contract StakeCiBtc is ReentrancyGuard, SingleAdminAccessControl {
     bytes32 private constant BLACKLIST_MANAGER_ROLE = keccak256("BLACKLIST_MANAGER_ROLE");
     bytes32 private constant CIBTC_STAKER_ROLE = keccak256("CIBTC_STAKER_ROLE");
 
-    // keccak256("withdraw(uint256 chainId, uint256 id,uint256 amount,address user,uint deadline)")
-    bytes32 private constant WITHDRAW_TYPEHASH = 0xfa39f7cc10c6cd35eb954bd6636599715e15f13364b1f4526e6db4160cdb5ec7;
+    // keccak256("withdraw(uint256 chainId,address token, uint256 id,,uint256 assets,uint256 amount,address user,uint deadline)")
+    bytes32 private constant WITHDRAW_TYPEHASH = 0x05028e3df2119a29fc6e3fab36fba05f56a3617958d96cf959a7487397e09e97;
+
+    // keccak256("deposit(uint256 chainId,address token,uint256 id,uint256 amount,uint256 shares,address user,uint deadline)")
+    bytes32 private constant DEPOSIT_TYPEHASH = 0x849e29044a1376626f7ff98481a4351bcc6bed2a187b60272e62a9d01bbf9599;
+
     IRBTC public _rBtc;
     IRBTC20 public _rBtc20;
 
     mapping(uint256 => bool) public withdraws;
+    mapping(uint256 => bool) public deposits;
 
     address signer = 0x3862A837c0Fd3b9eEE18C8945335c98a4F27Fb87;
 
@@ -31,7 +36,7 @@ contract StakeCiBtc is ReentrancyGuard, SingleAdminAccessControl {
     mapping(address => bool) public supportTokens;
     event Withdraw(address, address);
     event Withdrawal(uint id, address user, uint amount, uint time);
-    event Deposit(address token, address user, uint amount, uint time);
+    event Deposit(address token, address user, uint amount, uint shares, uint time);
     event UpdateManager(address preManager, address indexed newManager);
     event UpdateSupportToken(address token, bool support);
     event UpdateRBTC(address pre, address indexed newRBTC);
@@ -151,7 +156,18 @@ contract StakeCiBtc is ReentrancyGuard, SingleAdminAccessControl {
         emit WithdrawRBTC(token, msg.sender, amount, block.timestamp);
     }
 
-    function deposit(address token, uint256 amount) public payable nonReentrant notZero(amount) notSupportToken(token) {
+    function deposit(
+        uint256 id,
+        address token,
+        uint256 amount,
+        uint256 shares,
+        uint deadline,
+        bytes memory signature
+    ) public payable nonReentrant notZero(amount) notSupportToken(token) {
+        require(block.timestamp <= deadline, "deadline");
+        require(!deposits[id], "deposited");
+        require(verifySign1(token, id, amount, shares, deadline, signature), "Invalid signature");
+
         if (hasRole(CIBTC_STAKER_ROLE, msg.sender)) {
             revert OperationNotAllowed();
         }
@@ -162,8 +178,8 @@ contract StakeCiBtc is ReentrancyGuard, SingleAdminAccessControl {
         } else {
             IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         }
-        ICiBtc(ciBTC).mintTo(msg.sender, amount);
-        emit Deposit(token, msg.sender, amount, block.timestamp);
+        ICiBtc(ciBTC).mintTo(msg.sender, shares);
+        emit Deposit(token, msg.sender, amount, shares, block.timestamp);
     }
 
     function withdraw(
@@ -219,6 +235,39 @@ contract StakeCiBtc is ReentrancyGuard, SingleAdminAccessControl {
             abi.encodePacked(
                 "\x19Ethereum Signed Message:\n32",
                 keccak256(abi.encode(WITHDRAW_TYPEHASH, getChainId(), token, id, assets, amount, account, deadline))
+            )
+        );
+
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+        assembly {
+            r := mload(add(signature, 32))
+            s := mload(add(signature, 64))
+            v := and(mload(add(signature, 65)), 255)
+        }
+        require(
+            uint256(s) <= 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0,
+            "ECDSA: invalid signature 's' value"
+        );
+        require(uint8(v) == 27 || uint8(v) == 28, "ECDSA: invalid signature 'v' value");
+        address recoveredAddress = ecrecover(digest, v, r, s);
+
+        return recoveredAddress != address(0) && recoveredAddress == signer;
+    }
+
+    function verifySign1(
+        address token,
+        uint256 id,
+        uint256 amount,
+        uint256 shares,
+        uint256 deadline,
+        bytes memory signature
+    ) internal view returns (bool verifySuc) {
+        bytes32 digest = keccak256(
+            abi.encodePacked(
+                "\x19Ethereum Signed Message:\n32",
+                keccak256(abi.encode(DEPOSIT_TYPEHASH, getChainId(), id, token, amount, shares, deadline))
             )
         );
 
