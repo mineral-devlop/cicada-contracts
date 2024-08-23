@@ -3,25 +3,28 @@ pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import { SingleAdminAccessControl } from "./SingleAdminAccessControl.sol";
-import { IRBTC } from "./interfaces/IRBTC.sol";
-import { IRBTC20 } from "./interfaces/IRBTC20.sol";
-import { ICiBtc } from "./interfaces/ICiBtc.sol";
-import { TransferHelper } from "./utils/TransferHelper.sol";
+import {SingleAdminAccessControl} from "./SingleAdminAccessControl.sol";
+import {IRBTC} from "./interfaces/IRBTC.sol";
+import {IRBTC20} from "./interfaces/IRBTC20.sol";
+import {ICiBtc} from "./interfaces/ICiBtc.sol";
+import {TransferHelper} from "./utils/TransferHelper.sol";
 
 contract StakeCiBtc is ReentrancyGuard, SingleAdminAccessControl {
     using SafeERC20 for IERC20;
 
     bytes32 private constant OP_ROLE = keccak256("OP_ROLE");
 
-    bytes32 private constant BLACKLIST_MANAGER_ROLE = keccak256("BLACKLIST_MANAGER_ROLE");
+    bytes32 private constant BLACKLIST_MANAGER_ROLE =
+        keccak256("BLACKLIST_MANAGER_ROLE");
     bytes32 private constant CIBTC_STAKER_ROLE = keccak256("CIBTC_STAKER_ROLE");
 
     // keccak256("withdraw(uint256 chainId,address token, uint256 id,,uint256 assets,uint256 amount,address user,uint deadline)")
-    bytes32 private constant WITHDRAW_TYPEHASH = 0x05028e3df2119a29fc6e3fab36fba05f56a3617958d96cf959a7487397e09e97;
+    bytes32 private constant WITHDRAW_TYPEHASH =
+        0x05028e3df2119a29fc6e3fab36fba05f56a3617958d96cf959a7487397e09e97;
 
     // keccak256("deposit(uint256 chainId,address token,uint256 id,uint256 amount,uint256 shares,address user,uint deadline)")
-    bytes32 private constant DEPOSIT_TYPEHASH = 0x849e29044a1376626f7ff98481a4351bcc6bed2a187b60272e62a9d01bbf9599;
+    bytes32 private constant DEPOSIT_TYPEHASH =
+        0x849e29044a1376626f7ff98481a4351bcc6bed2a187b60272e62a9d01bbf9599;
 
     IRBTC public _rBtc;
     IRBTC20 public _rBtc20;
@@ -35,8 +38,22 @@ contract StakeCiBtc is ReentrancyGuard, SingleAdminAccessControl {
 
     mapping(address => bool) public supportTokens;
     event Withdraw(address, address);
-    event Withdrawal(uint id, address user, uint amount, uint time);
-    event Deposit(address token, address user, uint amount, uint shares, uint time);
+    event Withdrawal(
+        uint id,
+        address user,
+        address token,
+        uint amount,
+        uint shares,
+        uint time
+    );
+    event Deposit(
+        uint id,
+        address user,
+        address token,
+        uint amount,
+        uint shares,
+        uint time
+    );
     event UpdateManager(address preManager, address indexed newManager);
     event UpdateSupportToken(address token, bool support);
     event UpdateRBTC(address pre, address indexed newRBTC);
@@ -55,7 +72,7 @@ contract StakeCiBtc is ReentrancyGuard, SingleAdminAccessControl {
     }
 
     modifier notSupportToken(address token) {
-        if (supportTokens[token] != true) revert InvalidToken();
+        if (!supportTokens[token]) revert InvalidToken();
         _;
     }
     modifier notOwner(address target) {
@@ -63,8 +80,19 @@ contract StakeCiBtc is ReentrancyGuard, SingleAdminAccessControl {
         _;
     }
 
-    constructor(address op, address ciBTC_, address rbtc_, address rbtc20_, address[] memory tokens) {
-        if (op == address(0) || rbtc_ == address(0) || rbtc20_ == address(0) || ciBTC_ == address(0)) {
+    constructor(
+        address op,
+        address ciBTC_,
+        address rbtc_,
+        address rbtc20_,
+        address[] memory tokens
+    ) {
+        if (
+            op == address(0) ||
+            rbtc_ == address(0) ||
+            rbtc20_ == address(0) ||
+            ciBTC_ == address(0)
+        ) {
             revert InvalidZeroAddress();
         }
         for (uint i = 0; i < tokens.length; i++) {
@@ -78,10 +106,13 @@ contract StakeCiBtc is ReentrancyGuard, SingleAdminAccessControl {
         _grantRole(OP_ROLE, op);
     }
 
-    function withdrawTokensSelf(address token, address to) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function withdrawTokensSelf(
+        address token,
+        address to
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(to != address(0), "Cannot be zero address");
         if (token == address(0)) {
-            (bool success, ) = to.call{ value: address(this).balance }("");
+            (bool success, ) = to.call{value: address(this).balance}("");
             if (!success) {
                 revert();
             }
@@ -92,7 +123,10 @@ contract StakeCiBtc is ReentrancyGuard, SingleAdminAccessControl {
         emit Withdraw(token, to);
     }
 
-    function updateSupportToken(address _token, bool _support) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function updateSupportToken(
+        address _token,
+        bool _support
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         supportTokens[_token] = _support;
         emit UpdateSupportToken(_token, _support);
     }
@@ -105,6 +139,7 @@ contract StakeCiBtc is ReentrancyGuard, SingleAdminAccessControl {
         signer = _m;
         emit UpdateManager(pre, _m);
     }
+
     function updateRBTC(address _m) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (_m == address(0)) {
             revert InvalidZeroAddress();
@@ -123,18 +158,25 @@ contract StakeCiBtc is ReentrancyGuard, SingleAdminAccessControl {
         emit UpdateRBTC20(pre, _m);
     }
 
-    function addToBlacklist(address target) external onlyRole(BLACKLIST_MANAGER_ROLE) notOwner(target) {
+    function addToBlacklist(
+        address target
+    ) external onlyRole(BLACKLIST_MANAGER_ROLE) notOwner(target) {
         _grantRole(CIBTC_STAKER_ROLE, target);
     }
 
-    function removeFromBlacklist(address target) external onlyRole(BLACKLIST_MANAGER_ROLE) notOwner(target) {
+    function removeFromBlacklist(
+        address target
+    ) external onlyRole(BLACKLIST_MANAGER_ROLE) notOwner(target) {
         _revokeRole(CIBTC_STAKER_ROLE, target);
     }
 
     // sofa
-    function depositToSofa(address token, uint amount) public onlyRole(OP_ROLE) notZero(amount) notSupportToken(token) {
+    function depositToSofa(
+        address token,
+        uint amount
+    ) public onlyRole(OP_ROLE) notZero(amount) notSupportToken(token) {
         if (token == address(0)) {
-            _rBtc.deposit{ value: amount }();
+            _rBtc.deposit{value: amount}();
         } else {
             TransferHelper.safeApprove(token, address(_rBtc20), amount);
             _rBtc20.deposit(amount);
@@ -158,6 +200,7 @@ contract StakeCiBtc is ReentrancyGuard, SingleAdminAccessControl {
 
     function deposit(
         uint256 id,
+        address account,
         address token,
         uint256 amount,
         uint256 shares,
@@ -166,7 +209,18 @@ contract StakeCiBtc is ReentrancyGuard, SingleAdminAccessControl {
     ) public payable nonReentrant notZero(amount) notSupportToken(token) {
         require(block.timestamp <= deadline, "deadline");
         require(!deposits[id], "deposited");
-        require(verifySign1(token, id, amount, shares, deadline, signature), "Invalid signature");
+        require(
+            verifySign1(
+                id,
+                account,
+                token,
+                amount,
+                shares,
+                deadline,
+                signature
+            ),
+            "Invalid signature"
+        );
 
         if (hasRole(CIBTC_STAKER_ROLE, msg.sender)) {
             revert OperationNotAllowed();
@@ -176,40 +230,47 @@ contract StakeCiBtc is ReentrancyGuard, SingleAdminAccessControl {
                 revert InvalidAmount();
             }
         } else {
+            if (msg.value > 0) {
+                revert InvalidAmount();
+            }
             IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         }
         ICiBtc(ciBTC).mintTo(msg.sender, shares);
-        emit Deposit(token, msg.sender, amount, shares, block.timestamp);
+        deposits[id] = true;
+        emit Deposit(id, msg.sender, token, amount, shares, block.timestamp);
     }
 
     function withdraw(
-        address token,
         uint256 id,
+        address account,
+        address token,
         uint256 amount,
-        uint256 assets,
-        address user,
+        uint256 shares,
         uint deadline,
         bytes memory signature
-    ) public notSupportToken(token) notZero(assets) {
+    ) public nonReentrant notSupportToken(token) notZero(shares) {
         require(block.timestamp <= deadline, "deadline");
-        require(user == msg.sender, "sender not match");
+        require(account == msg.sender, "sender not match");
         require(!withdraws[id], "had claimed");
 
-        require(verifySign(token, id, assets, amount, user, deadline, signature), "Invalid signature");
+        require(
+            verifySign(id, account, token, amount, shares, deadline, signature),
+            "Invalid signature"
+        );
 
-        IERC20(ciBTC).safeTransferFrom(user, address(this), assets);
+        IERC20(ciBTC).safeTransferFrom(account, address(this), shares);
         uint _balance = IERC20(ciBTC).balanceOf(address(this));
         ICiBtc(ciBTC).burn(_balance);
 
         if (token == address(0)) {
-            (bool success, ) = msg.sender.call{ value: amount, gas: 10_000 }("");
+            (bool success, ) = msg.sender.call{value: amount, gas: 10_000}("");
             require(success, "WITHDRAW_FAILED");
         } else {
-            IERC20(token).safeTransfer(user, amount);
+            IERC20(token).safeTransfer(account, amount);
         }
         withdraws[id] = true;
 
-        emit Withdrawal(id, user, amount, block.timestamp);
+        emit Withdrawal(id, account, token, amount, shares, block.timestamp);
     }
 
     /// @dev Returns the chain id used by this contract.
@@ -223,42 +284,9 @@ contract StakeCiBtc is ReentrancyGuard, SingleAdminAccessControl {
     }
 
     function verifySign(
-        address token,
         uint256 id,
-        uint256 assets,
-        uint256 amount,
         address account,
-        uint256 deadline,
-        bytes memory signature
-    ) internal view returns (bool verifySuc) {
-        bytes32 digest = keccak256(
-            abi.encodePacked(
-                "\x19Ethereum Signed Message:\n32",
-                keccak256(abi.encode(WITHDRAW_TYPEHASH, getChainId(), token, id, assets, amount, account, deadline))
-            )
-        );
-
-        bytes32 r;
-        bytes32 s;
-        uint8 v;
-        assembly {
-            r := mload(add(signature, 32))
-            s := mload(add(signature, 64))
-            v := and(mload(add(signature, 65)), 255)
-        }
-        require(
-            uint256(s) <= 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0,
-            "ECDSA: invalid signature 's' value"
-        );
-        require(uint8(v) == 27 || uint8(v) == 28, "ECDSA: invalid signature 'v' value");
-        address recoveredAddress = ecrecover(digest, v, r, s);
-
-        return recoveredAddress != address(0) && recoveredAddress == signer;
-    }
-
-    function verifySign1(
         address token,
-        uint256 id,
         uint256 amount,
         uint256 shares,
         uint256 deadline,
@@ -267,7 +295,18 @@ contract StakeCiBtc is ReentrancyGuard, SingleAdminAccessControl {
         bytes32 digest = keccak256(
             abi.encodePacked(
                 "\x19Ethereum Signed Message:\n32",
-                keccak256(abi.encode(DEPOSIT_TYPEHASH, getChainId(), id, token, amount, shares, deadline))
+                keccak256(
+                    abi.encode(
+                        WITHDRAW_TYPEHASH,
+                        getChainId(),
+                        id,
+                        account,
+                        token,
+                        amount,
+                        shares,
+                        deadline
+                    )
+                )
             )
         );
 
@@ -280,10 +319,63 @@ contract StakeCiBtc is ReentrancyGuard, SingleAdminAccessControl {
             v := and(mload(add(signature, 65)), 255)
         }
         require(
-            uint256(s) <= 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0,
+            uint256(s) <=
+                0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0,
             "ECDSA: invalid signature 's' value"
         );
-        require(uint8(v) == 27 || uint8(v) == 28, "ECDSA: invalid signature 'v' value");
+        require(
+            uint8(v) == 27 || uint8(v) == 28,
+            "ECDSA: invalid signature 'v' value"
+        );
+        address recoveredAddress = ecrecover(digest, v, r, s);
+
+        return recoveredAddress != address(0) && recoveredAddress == signer;
+    }
+
+    function verifySign1(
+        uint256 id,
+        address account,
+        address token,
+        uint256 amount,
+        uint256 shares,
+        uint256 deadline,
+        bytes memory signature
+    ) internal view returns (bool verifySuc) {
+        bytes32 digest = keccak256(
+            abi.encodePacked(
+                "\x19Ethereum Signed Message:\n32",
+                keccak256(
+                    abi.encode(
+                        DEPOSIT_TYPEHASH,
+                        getChainId(),
+                        id,
+                        account,
+                        token,
+                        amount,
+                        shares,
+                        deadline
+                    )
+                )
+            )
+        );
+
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+        assembly {
+            r := mload(add(signature, 32))
+            s := mload(add(signature, 64))
+            v := and(mload(add(signature, 65)), 255)
+        }
+        require(
+            uint256(s) <=
+                0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0,
+            "ECDSA: invalid signature 's' value"
+        );
+        require(
+            uint8(v) == 27 || uint8(v) == 28,
+            "ECDSA: invalid signature 'v' value"
+        );
         address recoveredAddress = ecrecover(digest, v, r, s);
 
         return recoveredAddress != address(0) && recoveredAddress == signer;
