@@ -3,17 +3,16 @@ pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {SingleAdminAccessControl} from "./SingleAdminAccessControl.sol";
+import { SingleAdminAccessControl } from "./SingleAdminAccessControl.sol";
 
-import {IRBTC20} from "./interfaces/IRBTC20.sol";
-import {ICiBtc} from "./interfaces/ICiBtc.sol";
-import {TransferHelper} from "./utils/TransferHelper.sol";
+import { IRBTC20 } from "./interfaces/IRBTC20.sol";
+import { ICiBtc } from "./interfaces/ICiBtc.sol";
+import { TransferHelper } from "./utils/TransferHelper.sol";
 
 contract StakeCiBtc2 is ReentrancyGuard, SingleAdminAccessControl {
     using SafeERC20 for IERC20;
 
-    bytes32 private constant BLACKLIST_MANAGER_ROLE =
-        keccak256("BLACKLIST_MANAGER_ROLE");
+    bytes32 private constant BLACKLIST_MANAGER_ROLE = keccak256("BLACKLIST_MANAGER_ROLE");
     bytes32 private constant CIBTC_STAKER_ROLE = keccak256("CIBTC_STAKER_ROLE");
 
     IERC20 public immutable collateral;
@@ -43,18 +42,8 @@ contract StakeCiBtc2 is ReentrancyGuard, SingleAdminAccessControl {
         _;
     }
 
-    constructor(
-        address owner_,
-        address rbtc_,
-        address ciBTC_,
-        IERC20 collateral_
-    ) {
-        if (
-            rbtc_ == address(0) ||
-            ciBTC_ == address(0) ||
-            owner_ == address(0) ||
-            address(collateral_) == address(0)
-        ) {
+    constructor(address owner_, address rbtc_, address ciBTC_, IERC20 collateral_) {
+        if (rbtc_ == address(0) || ciBTC_ == address(0) || owner_ == address(0) || address(collateral_) == address(0)) {
             revert InvalidZeroAddress();
         }
 
@@ -65,13 +54,10 @@ contract StakeCiBtc2 is ReentrancyGuard, SingleAdminAccessControl {
         _grantRole(DEFAULT_ADMIN_ROLE, owner_);
     }
 
-    function withdrawTokensSelf(
-        address token,
-        address to
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function withdrawTokensSelf(address token, address to) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(to != address(0), "Cannot be zero address");
         if (token == address(0)) {
-            (bool success, ) = to.call{value: address(this).balance}("");
+            (bool success, ) = to.call{ value: address(this).balance }("");
             if (!success) {
                 revert();
             }
@@ -82,15 +68,11 @@ contract StakeCiBtc2 is ReentrancyGuard, SingleAdminAccessControl {
         emit Withdraw(token, to);
     }
 
-    function addToBlacklist(
-        address target
-    ) external onlyRole(BLACKLIST_MANAGER_ROLE) notOwner(target) {
+    function addToBlacklist(address target) external onlyRole(BLACKLIST_MANAGER_ROLE) notOwner(target) {
         _grantRole(CIBTC_STAKER_ROLE, target);
     }
 
-    function removeFromBlacklist(
-        address target
-    ) external onlyRole(BLACKLIST_MANAGER_ROLE) notOwner(target) {
+    function removeFromBlacklist(address target) external onlyRole(BLACKLIST_MANAGER_ROLE) notOwner(target) {
         _revokeRole(CIBTC_STAKER_ROLE, target);
     }
 
@@ -101,9 +83,13 @@ contract StakeCiBtc2 is ReentrancyGuard, SingleAdminAccessControl {
         collateral.safeTransferFrom(msg.sender, address(this), amount);
 
         TransferHelper.safeApprove(address(collateral), address(rBTC), amount);
+        uint beforeRBTC = rBTC.balanceOf(address(this));
         rBTC.deposit(amount);
+        uint afterRBTC = rBTC.balanceOf(address(this));
 
-        ICiBtc(ciBTC).mintTo(msg.sender, amount);
+        uint shareAmount = afterRBTC - beforeRBTC;
+        ICiBtc(ciBTC).mintTo(msg.sender, shareAmount);
+
         emit Deposit(address(collateral), msg.sender, amount, block.timestamp);
     }
 
@@ -111,10 +97,7 @@ contract StakeCiBtc2 is ReentrancyGuard, SingleAdminAccessControl {
         if (hasRole(CIBTC_STAKER_ROLE, msg.sender)) {
             revert OperationNotAllowed();
         }
-        require(
-            amount <= IERC20(ciBTC).balanceOf(msg.sender),
-            "INSUFFICIENT_ciBTC_BALANCE"
-        );
+        require(amount <= IERC20(ciBTC).balanceOf(msg.sender), "INSUFFICIENT_ciBTC_BALANCE");
 
         uint beforeCollateral = collateral.balanceOf(address(this));
         rBTC.withdraw(amount);
